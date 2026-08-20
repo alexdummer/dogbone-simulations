@@ -5,13 +5,14 @@ specimen in ../geometry/dogbone.stl.
 
 The STL is a prismatic (constant-thickness) extrusion, so the 3D surface mesh
 is reduced to its 2D cross-section outline, remeshed as an all-quad mesh with
-gmsh, and written out in Abaqus-like *node/*element/*nSet/*elSet syntax
-(consumed via *include from an EdelweissFE input file).
+gmsh, and written out in Abaqus-like *node/*element/*nSet/*elSet syntax as a
+pure mesh file (../meshes/) -- kept separate from the simulation input files
+(../simulations/) that *include it and add material/BCs/solver/output setup.
 
 Requires: numpy, numpy-stl, gmsh (``pip install numpy-stl gmsh``).
 
 Usage:
-    python generate_mesh.py [--stl ../geometry/dogbone.stl] [--out ../edelweissfe/dogbone_mesh.inp]
+    python generate_mesh.py [--stl ../geometry/dogbone.stl] [--out ../meshes/dogbone_mesh.inp]
 """
 
 import argparse
@@ -215,7 +216,7 @@ def main():
     here = Path(__file__).parent
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--stl", type=Path, default=here / "../geometry/dogbone.stl")
-    parser.add_argument("--out", type=Path, default=here / "../edelweissfe/dogbone_mesh.inp")
+    parser.add_argument("--out", type=Path, default=here / "../meshes/dogbone_mesh.inp")
     args = parser.parse_args()
 
     top = extract_top_boundary(args.stl)

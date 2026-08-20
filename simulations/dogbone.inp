@@ -20,7 +20,7 @@
 **   right grip: ux=0.5mm, uy=0  (prescribed displacement)
 ** ------------------------------------------------------------------------
 
-*include, input=dogbone_mesh.inp
+*include, input=../meshes/dogbone_mesh.inp
 
 *material, name=linearelastic, id=steel, provider=edelweiss
 ** E [MPa], nu
