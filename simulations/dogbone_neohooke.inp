@@ -15,8 +15,10 @@
 **   thickness             :   2.0 mm  (single element layer, z in [0, 2.0])
 **
 ** Material: compressible NeoHooke (finite-strain hyperelastic), K/G chosen
-** to match the small-strain stiffness of dogbone.inp's steel (E=210000 MPa,
-** nu=0.3): K = E/(3(1-2nu)) = 175000 MPa, G = E/(2(1+nu)) = 80769.2 MPa.
+** to match the small-strain shear stiffness of a nearly-incompressible
+** rubber-like material (E=210000 MPa, nu=0.47): K = E/(3(1-2nu)) =
+** 1166666.7 MPa, G = E/(2(1+nu)) = 71428.6 MPa. (Previously nu=0.3, giving
+** K=175000/G=80769.2 -- see git history for that run's results.)
 **
 ** Dirichlet BCs mirror dogbone.inp: the outer 10 mm of each grip is treated
 ** as a rigid clamp (all nodes through the thickness, both z=0 and z=2mm),
@@ -29,7 +31,7 @@
 
 *material, name=COMPRESSIBLENEOHOOKE, id=rubber
 ** K [MPa], G [MPa]
-175000.0, 80769.2
+1166666.7, 71428.6
 
 *section, name=section1, material=rubber, type=solid
 all

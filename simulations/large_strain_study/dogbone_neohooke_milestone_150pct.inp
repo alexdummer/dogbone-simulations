@@ -8,7 +8,7 @@
 *include, input=../../meshes/dogbone_mesh_3d.inp
 
 *material, name=COMPRESSIBLENEOHOOKE, id=rubber
-175000.0, 80769.2
+1166666.7, 71428.6
 
 *section, name=section1, material=rubber, type=solid
 all
