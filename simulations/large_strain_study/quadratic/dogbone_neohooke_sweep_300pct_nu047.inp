@@ -1,0 +1,45 @@
+** ------------------------------------------------------------------------
+** Large-strain sweep with the 20-node reduced-integration hex (C3D20RUL),
+** nu=0.30 -- the compressible case, re-run with quadratic elements as a
+** baseline for comparison against the near-incompressible nu=0.47 case
+** below (where the linear C3D8UL element showed severe volumetric
+** locking; C3D20RUL is the locking-resistant element for this study).
+**
+** Right grip ramped 0 -> 285 mm (300% nominal strain on the 95 mm free
+** length) over many adaptive increments, tracing gauge-section behaviour
+** continuously through the finite-strain regime.
+** ------------------------------------------------------------------------
+
+*include, input=../../../meshes/dogbone_mesh_3d_quad.inp
+
+*material, name=COMPRESSIBLENEOHOOKE, id=steellike
+** K [MPa], G [MPa]  (E=210000, nu=0.47)
+1166666.7, 71428.6
+
+*section, name=section1, material=steellike, type=solid
+all
+
+*job, name=dogboneQuadSweepNu047, domain=3d
+*solver, solver=NIST, name=theSolver
+linsolver=pardiso
+
+*fieldOutput
+>>perNode, nSet=gripClampLeft, field=displacement, result=U, name=U_gripLeft
+>>perNode, nSet=gripClampRight, field=displacement, result=U, name=U_gripRight
+>>perNode, nSet=gaugeLeftEdge, field=displacement, result=U, name=U_gaugeLeft
+>>perNode, nSet=gaugeRightEdge, field=displacement, result=U, name=U_gaugeRight
+
+*output, type=monitor
+fieldOutput=U_gripLeft, f(x)='mean(x[:,0])'
+*output, type=monitor
+fieldOutput=U_gripRight, f(x)='mean(x[:,0])'
+*output, type=monitor
+fieldOutput=U_gaugeLeft, f(x)='mean(x[:,0])'
+*output, type=monitor
+fieldOutput=U_gaugeRight, f(x)='mean(x[:,0])'
+
+*step, solver=theSolver
+maxInc=0.01, minInc=1e-7, maxNumInc=2000, maxIter=40, criticalIter=8, stepLength=1.0
+>>dirichlet, name=gripLeft,  nSet=gripClampLeft,  field=displacement, 1=0.0,   2=0.0
+>>dirichlet, name=gripRight, nSet=gripClampRight, field=displacement, 1=285.0, 2=0.0
+>>dirichlet, name=z0,        nSet=z0Layer,        field=displacement, 3=0.0
