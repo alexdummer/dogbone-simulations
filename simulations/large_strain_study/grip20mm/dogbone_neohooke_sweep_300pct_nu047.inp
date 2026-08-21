@@ -1,0 +1,49 @@
+** ------------------------------------------------------------------------
+** Grip-width sensitivity study: identical to ../dogbone_neohooke_sweep_300pct.inp
+** (compressible NeoHooke, linear C3D8UL, 3D one-layer hex mesh), except the
+** Dirichlet grip clamp now covers the outer 20 mm of each end (x<=-37.5 or
+** x>=37.5) instead of 10 mm -- deep enough to reach into the fillet, not
+** just the flat 25 mm-wide grip block. Kept alongside (not replacing) the
+** original 10 mm-clamp results for direct comparison.
+**
+** Free (grip-to-grip) length is therefore 75 mm (2*37.5), not 95 mm. The
+** right grip is ramped from 0 to 225 mm = 300% nominal strain on THIS
+** 75 mm free length, so the two studies are compared at matching nominal
+** strain, not matching absolute displacement.
+**
+** nominal strain := (U_gripRight - U_gripLeft) / 75.0   [75 mm free length]
+** ------------------------------------------------------------------------
+
+*include, input=../../../meshes/dogbone_mesh_3d_grip20.inp
+
+*material, name=COMPRESSIBLENEOHOOKE, id=steellike
+** K [MPa], G [MPa]  (E=210000, nu=0.47)
+1166666.7, 71428.6
+
+*section, name=section1, material=steellike, type=solid
+all
+
+*job, name=dogboneGrip20SweepNu047, domain=3d
+*solver, solver=NIST, name=theSolver
+linsolver=pardiso
+
+*fieldOutput
+>>perNode, nSet=gripClampLeft, field=displacement, result=U, name=U_gripLeft
+>>perNode, nSet=gripClampRight, field=displacement, result=U, name=U_gripRight
+>>perNode, nSet=gaugeLeftEdge, field=displacement, result=U, name=U_gaugeLeft
+>>perNode, nSet=gaugeRightEdge, field=displacement, result=U, name=U_gaugeRight
+
+*output, type=monitor
+fieldOutput=U_gripLeft, f(x)='mean(x[:,0])'
+*output, type=monitor
+fieldOutput=U_gripRight, f(x)='mean(x[:,0])'
+*output, type=monitor
+fieldOutput=U_gaugeLeft, f(x)='mean(x[:,0])'
+*output, type=monitor
+fieldOutput=U_gaugeRight, f(x)='mean(x[:,0])'
+
+*step, solver=theSolver
+maxInc=0.01, minInc=1e-7, maxNumInc=2000, maxIter=40, criticalIter=8, stepLength=1.0
+>>dirichlet, name=gripLeft,  nSet=gripClampLeft,  field=displacement, 1=0.0,   2=0.0
+>>dirichlet, name=gripRight, nSet=gripClampRight, field=displacement, 1=225.0, 2=0.0
+>>dirichlet, name=z0,        nSet=z0Layer,        field=displacement, 3=0.0

@@ -56,15 +56,15 @@ def extrude_to_hex8(nodeCoords2d, elNodeTags2d, thickness: float):
     return nodeCoords3d, hexElements
 
 
-def write_inp_3d(out_path: Path, nodeCoords3d, hexElements):
+def write_inp_3d(out_path: Path, nodeCoords3d, hexElements, grip_clamp_x: float = GRIP_CLAMP_X):
     tol = 1e-4
     n2d = len(nodeCoords3d) // 2
 
     def nodes_where(cond):
         return sorted(i + 1 for i, c in enumerate(nodeCoords3d) if cond(c))
 
-    grip_clamp_left = nodes_where(lambda c: c[0] <= -GRIP_CLAMP_X + tol)
-    grip_clamp_right = nodes_where(lambda c: c[0] >= GRIP_CLAMP_X - tol)
+    grip_clamp_left = nodes_where(lambda c: c[0] <= -grip_clamp_x + tol)
+    grip_clamp_right = nodes_where(lambda c: c[0] >= grip_clamp_x - tol)
     gauge_left_edge = nodes_where(lambda c: abs(c[0] - (-GAUGE_HALF_LENGTH)) < tol)
     gauge_right_edge = nodes_where(lambda c: abs(c[0] - GAUGE_HALF_LENGTH) < tol)
     # Removes the single otherwise-unconstrained out-of-plane (z) rigid-body
@@ -107,13 +107,14 @@ def main():
     parser.add_argument("--stl", type=Path, default=here / "../geometry/dogbone.stl")
     parser.add_argument("--out", type=Path, default=here / "../meshes/dogbone_mesh_3d.inp")
     parser.add_argument("--thickness", type=float, default=THICKNESS)
+    parser.add_argument("--grip-clamp-x", type=float, default=GRIP_CLAMP_X)
     args = parser.parse_args()
 
     top = extract_top_boundary(args.stl)
     top_final = simplify_outline(top)
     polygon = build_full_polygon(top_final)
 
-    nodeTags, nodeCoords, elTags, elNodeTags = mesh_polygon(polygon)
+    nodeTags, nodeCoords, elTags, elNodeTags = mesh_polygon(polygon, grip_clamp_x=args.grip_clamp_x)
     coord_by_tag = {int(t): c for t, c in zip(nodeTags, nodeCoords)}
 
     # Same CCW/positive-area fix as generate_mesh.py -- required so the
@@ -132,7 +133,7 @@ def main():
     nodeCoords3d, hexElements0 = extrude_to_hex8(nodeCoords, elNodeIdx, args.thickness)
     hexElements = hexElements0 + 1  # -> 1-based node labels matching *node block
 
-    write_inp_3d(args.out, nodeCoords3d, hexElements)
+    write_inp_3d(args.out, nodeCoords3d, hexElements, grip_clamp_x=args.grip_clamp_x)
 
 
 if __name__ == "__main__":

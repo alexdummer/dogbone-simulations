@@ -105,48 +105,82 @@ def build_full_polygon(top_final: np.ndarray) -> np.ndarray:
     return np.vstack([top_final, bottom])
 
 
-def mesh_polygon(polygon: np.ndarray):
+def mesh_polygon(polygon: np.ndarray, grip_clamp_x: float = GRIP_CLAMP_X):
     """Build the 2D geometry in gmsh's OCC kernel, fragment in cut lines at
     the Dirichlet-clamp and gauge-section boundaries (so the mesh has exact
     conformal node lines there for BC application and cross-section
     sampling), and generate an all-quad mesh.
 
+    grip_clamp_x need not fall within the flat 25 mm-wide grip block -- the
+    cut line's y-extent is taken from the polygon's own boundary (by
+    interpolating the top-half outline) at that x, not assumed to be the
+    grip's nominal half-width, so this is correct even if the clamp line
+    lands inside the fillet.
+
     Returns (nodeTags, nodeCoords[N,3], elTags, elNodeTags[N,4]).
     """
-    gmsh.initialize()
-    gmsh.model.add("dogbone")
-    occ = gmsh.model.occ
 
-    n = len(polygon)
-    pts = [occ.addPoint(x, y, 0.0, MESH_SIZE) for x, y in polygon]
-    lines = [occ.addLine(pts[i], pts[(i + 1) % n]) for i in range(n)]
-    loop = occ.addCurveLoop(lines)
-    surf = occ.addPlaneSurface([loop])
-    occ.synchronize()
+    def build_geometry():
+        gmsh.initialize()
+        gmsh.model.add("dogbone")
+        occ = gmsh.model.occ
 
-    cut_lines = []
-    for cx in (-GRIP_CLAMP_X, -GAUGE_HALF_LENGTH, GAUGE_HALF_LENGTH, GRIP_CLAMP_X):
-        ytop, ybot = (12.5, -12.5) if abs(cx) == GRIP_CLAMP_X else (3.0, -3.0)
-        p_top = occ.addPoint(cx, ytop, 0.0, MESH_SIZE)
-        p_bot = occ.addPoint(cx, ybot, 0.0, MESH_SIZE)
-        cut_lines.append(occ.addLine(p_bot, p_top))
+        n = len(polygon)
+        pts = [occ.addPoint(x, y, 0.0, MESH_SIZE) for x, y in polygon]
+        lines = [occ.addLine(pts[i], pts[(i + 1) % n]) for i in range(n)]
+        loop = occ.addCurveLoop(lines)
+        surf = occ.addPlaneSurface([loop])
+        occ.synchronize()
 
-    occ.fragment([(2, surf)], [(1, l) for l in cut_lines])
-    occ.synchronize()
+        top_boundary = polygon[polygon[:, 1] > 0]
+        order = np.argsort(top_boundary[:, 0])
+        top_boundary = top_boundary[order]
 
-    gmsh.option.setNumber("Mesh.Algorithm", 8)
-    gmsh.option.setNumber("Mesh.RecombineAll", 1)
-    gmsh.option.setNumber("Mesh.RecombinationAlgorithm", 2)
-    # Guarantees a 100% quad mesh (EdelweissFE's element library has no
-    # triangles) even where plain recombination would leave a few leftover.
-    gmsh.option.setNumber("Mesh.SubdivisionAlgorithm", 1)
-    gmsh.option.setNumber("Mesh.CharacteristicLengthMin", MESH_SIZE * 0.5)
-    gmsh.option.setNumber("Mesh.CharacteristicLengthMax", MESH_SIZE)
+        def half_width_at(x):
+            return float(np.interp(x, top_boundary[:, 0], top_boundary[:, 1]))
 
-    for dim, tag in gmsh.model.getEntities(2):
-        gmsh.model.mesh.setRecombine(dim, tag)
+        cut_lines = []
+        for cx in (-grip_clamp_x, -GAUGE_HALF_LENGTH, GAUGE_HALF_LENGTH, grip_clamp_x):
+            ytop = half_width_at(cx)
+            p_top = occ.addPoint(cx, ytop, 0.0, MESH_SIZE)
+            p_bot = occ.addPoint(cx, -ytop, 0.0, MESH_SIZE)
+            cut_lines.append(occ.addLine(p_bot, p_top))
 
-    gmsh.model.mesh.generate(2)
+        occ.fragment([(2, surf)], [(1, l) for l in cut_lines])
+        occ.synchronize()
+
+        # Guarantees a 100% quad mesh (EdelweissFE's element library has no
+        # triangles) regardless of the base triangulation.
+        gmsh.option.setNumber("Mesh.SubdivisionAlgorithm", 1)
+        gmsh.option.setNumber("Mesh.CharacteristicLengthMin", MESH_SIZE * 0.5)
+        gmsh.option.setNumber("Mesh.CharacteristicLengthMax", MESH_SIZE)
+
+    build_geometry()
+    try:
+        # Algorithm 8 (Frontal-Delaunay for Quads) + direct recombination is
+        # what produced every mesh in this repo's history; prefer it for
+        # exact reproducibility of the default (10 mm clamp) mesh.
+        gmsh.option.setNumber("Mesh.Algorithm", 8)
+        gmsh.option.setNumber("Mesh.RecombineAll", 1)
+        gmsh.option.setNumber("Mesh.RecombinationAlgorithm", 2)
+        for dim, tag in gmsh.model.getEntities(2):
+            gmsh.model.mesh.setRecombine(dim, tag)
+        gmsh.model.mesh.generate(2)
+    except Exception:
+        # Both algorithm 8 and its direct recombination step require an even
+        # boundary-edge count per fragment region and fail ("1D mesh cannot
+        # be divided by 2") for some grip_clamp_x cut positions. gmsh's
+        # internal 1D mesh state from the failed attempt isn't cleanly
+        # undone by mesh.clear() alone, so start a fresh gmsh session and
+        # rebuild the geometry before falling back to plain triangulation
+        # (algorithm 6) with recombination disabled, relying purely on
+        # SubdivisionAlgorithm=1 (subdivides each triangle into 3 quads,
+        # with no parity constraint) to still guarantee an all-quad mesh.
+        gmsh.finalize()
+        build_geometry()
+        gmsh.option.setNumber("Mesh.RecombineAll", 0)
+        gmsh.option.setNumber("Mesh.Algorithm", 6)
+        gmsh.model.mesh.generate(2)
 
     nodeTags, nodeCoords, _ = gmsh.model.mesh.getNodes()
     nodeCoords = nodeCoords.reshape(-1, 3)
@@ -166,7 +200,7 @@ def signed_area(coords: np.ndarray) -> float:
     return 0.5 * np.sum(x * np.roll(y, -1) - np.roll(x, -1) * y)
 
 
-def write_inp(out_path: Path, nodeTags, nodeCoords, elTags, elNodeTags):
+def write_inp(out_path: Path, nodeTags, nodeCoords, elTags, elNodeTags, grip_clamp_x: float = GRIP_CLAMP_X):
     coord_by_tag = {int(t): c for t, c in zip(nodeTags, nodeCoords)}
     tol = 1e-4
 
@@ -180,8 +214,8 @@ def write_inp(out_path: Path, nodeTags, nodeCoords, elTags, elNodeTags):
     def nodes_where(cond):
         return sorted(int(t) for t, c in coord_by_tag.items() if cond(c))
 
-    grip_clamp_left = nodes_where(lambda c: c[0] <= -GRIP_CLAMP_X + tol)
-    grip_clamp_right = nodes_where(lambda c: c[0] >= GRIP_CLAMP_X - tol)
+    grip_clamp_left = nodes_where(lambda c: c[0] <= -grip_clamp_x + tol)
+    grip_clamp_right = nodes_where(lambda c: c[0] >= grip_clamp_x - tol)
     gauge_left_edge = nodes_where(lambda c: abs(c[0] - (-GAUGE_HALF_LENGTH)) < tol)
     gauge_right_edge = nodes_where(lambda c: abs(c[0] - GAUGE_HALF_LENGTH) < tol)
 
@@ -217,14 +251,21 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--stl", type=Path, default=here / "../geometry/dogbone.stl")
     parser.add_argument("--out", type=Path, default=here / "../meshes/dogbone_mesh.inp")
+    parser.add_argument(
+        "--grip-clamp-x",
+        type=float,
+        default=GRIP_CLAMP_X,
+        help="x-coordinate of the Dirichlet grip-clamp boundary (default: 47.5, i.e. a 10 mm clamp "
+        "band inset from the 57.5 mm end). Need not fall within the flat grip block.",
+    )
     args = parser.parse_args()
 
     top = extract_top_boundary(args.stl)
     top_final = simplify_outline(top)
     polygon = build_full_polygon(top_final)
 
-    nodeTags, nodeCoords, elTags, elNodeTags = mesh_polygon(polygon)
-    write_inp(args.out, nodeTags, nodeCoords, elTags, elNodeTags)
+    nodeTags, nodeCoords, elTags, elNodeTags = mesh_polygon(polygon, grip_clamp_x=args.grip_clamp_x)
+    write_inp(args.out, nodeTags, nodeCoords, elTags, elNodeTags, grip_clamp_x=args.grip_clamp_x)
 
 
 if __name__ == "__main__":
